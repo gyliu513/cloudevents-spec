@@ -1,135 +1,255 @@
-# Protocol Buffers Event Format for CloudEvents  - Version 0.2
+# Protobuf Event Format for CloudEvents - Version 1.0-rc1
 
 ## Abstract
 
-The Protocol Buffers Format for CloudEvents (CE) defines the encoding
-of CloudEvents in the Protocol Buffers binary format.
+[Protocol Buffers][proto-home] is a mechanism for marshalling structured data,
+this document defines how CloudEvents are represented using [version 3][proto-3]
+of that specification.
+
+In this document the terms *Protocol Buffers*, *protobuf*, and *proto* are used
+interchangeably.
 
 ## Status of this document
 
 This document is a working draft.
 
+## Table of Contents
+
+1. [Introduction](#1-introduction)
+2. [Attributes](#2-attributes)
+3. [Data](#3-data)
+4. [Transport](#4-transport)
+5. [Batch Format](#5-batch-format)
+6. [Examples](#6-examples)
+
 ## 1. Introduction
 
-This specification defines how the [Context
-Attributes](spec.md#context-attributes) defined in the CloudEvents
-specification MUST be encoded in the protocol buffer binary
-format. Transcoding to and from other formats (e.g. JSON) is out of
-the scope of this document.
+[CloudEvents][ce] is a standardized and protocol-agnostic definition of the
+structure and metadata description of events. This specification defines how the
+elements defined in the CloudEvents specification are are represented using
+a protobuf schema.
 
-Protocol Buffers are a language-neutral, platform-neutral extensible
-mechanism for serializing structured data. The [Google reference
-implementation of Protocol
-Buffers](https://github.com/protocolbuffers/protobuf) includes support
-for an interface descriptor language (IDL), and this document makes
-use of language level 3 IDL from Protocol Buffers v3.5.0. CloudEvents
-systems using Protocol Buffers are not mandated to use the IDL or any
-particular implementation of Protocol Buffers as long as they produce
-messages which match the binary encoding defined by the IDL.
+The [Attributes](#2-attributes) section describes the naming conventions and
+data type mappings for CloudEvent attributes for use as protobuf message
+properties.
 
+The [Data](#3-data) section describes how the event payload is carried.
 
 ### 1.1. Conformance
-The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT",
-"SHOULD", "SHOULD NOT", "RECOMMENDED", "MAY", and "OPTIONAL" in this
-document are to be interpreted as described in
-[RFC2119](https://tools.ietf.org/html/rfc2119).
 
-## 2. Protocol Buffers format
+The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD",
+"SHOULD NOT", "RECOMMENDED", "MAY", and "OPTIONAL" in this document are to be
+interpreted as described in [RFC2119][rfc2119].
 
-Protocol Buffers provide a binary data serialization format which is
-substantially more compact and efficient to parse when compared to XML
-or JSON, along with a variety of language-specific libraries to
-perform automatic serialization and deserialization. The [Protocol
-Buffers specification defines a well-known encoding
-format](https://developers.google.com/protocol-buffers/docs/encoding)
-which is the basis of this specification. This specification is
-described using the Protocol Buffers project IDL for readability, but
-the ultimate basis of this specification is the Protocol Buffers
-binary encoding.
+### 1.2 Content-Type
 
+There is no official IANA *media-type* designation for protobuf, as such this
+specification uses 'application/protobuf' to identify such content.
 
-### 2.1 Definition
+## 2. Attributes
 
-Users of Protocol Buffers MUST use a message whose binary encoding is
-identical to the one described by the [CloudEventMap
-message](./cloudevent.proto):
+This section defines how CloudEvents attributes are represented in the protobuf
+[schema][proto-schema].
+
+## 2.1 Type System
+
+The CloudEvents type system is mapped to protobuf as follows :
+
+| CloudEvents   | protobuf |
+| ------------- | ---------------------------------------------------------------------- |
+| Boolean       | [boolean][proto-scalars] |
+| Integer       | [int32][proto-scalars] |
+| String        | [string][proto-scalars] |
+| Binary        | [bytes][proto-scalars] |
+| URI           | [string][proto-scalars] following [RFC 3986 §4.3][rfc3986-section43]|
+| URI-reference | [string][proto-scalars] following [RFC 3986 §4.1][rfc3986-section41] |
+| Timestamp     | [Timestamp][proto-timestamp]  |
+
+## 2.3 REQUIRED Attributes
+
+REQUIRED attributes are represented explicitly as protobuf fields.
+
+## 2.4 OPTIONAL Attributes & Extensions
+
+OPTIONAL and extension attributes are represented using a map construct enabling
+direct support of the CloudEvent [type system][ce-types].
 
 ```proto
-syntax = "proto3";
+map<string, CloudEventAttributeValue> attributes = 1;
 
-package io.cloudevents;
+message CloudEventAttributeValue {
 
-// allows a map to appear inside `oneof`
-message CloudEventMap {
-  map<string, CloudEventAny> value = 1;
-}
-
-message CloudEventAny {
-  oneof value {
-    string string_value = 1;
-    bytes binary_value = 2;
-    uint32 int_value = 3;
-    CloudEventMap map_value = 4;
-  }
+    oneof attr {
+      bool ce_boolean = 1;
+      int32 ce_integer = 2;
+      string ce_string = 3;
+      bytes ce_binary = 4;
+      string ce_uri = 5;
+      string ce_uri_reference = 6;
+      google.protobuf.Timestamp ce_timestamp = 7;
+    }
 }
 ```
 
-The CloudEvents type system MUST be mapped into the fields of
-`CloudEventAny` as follows:
+In this model an attribute's name is used as the map *key* and is
+associated with its *value* stored in the appropriately typed property.
 
+This approach allows attributes to be represented and transported
+with no loss of *type* information.
 
-| CloudEvents   | CloudEventAny field
-|---------------|-------------------------------------------------------------
-| String        | string_value
-| Binary        | binary_value
-| URI-reference | string_value (string expression conforming to URI-reference as defined in [RFC 3986 §4.1](https://tools.ietf.org/html/rfc3986#section-4.1))
-| Timestamp     | string_value (string expression as defined in [RFC 3339](https://tools.ietf.org/html/rfc3339))
-| Map           | map_value
-| Integer       | int_value
-| Any           | Not applicable. Any is the enclosing CloudEventAny message itself
+## 3. Data
 
-Protocol Buffer representations of CloudEvents MUST use the media type `application/cloudevents+proto`.
+The specification allows for data payloads of the following types to be explicitly represented:
 
-## 3. Examples
+* string
+* bytes
+* protobuf object/message
 
-Below is an example of how to create a CloudEvent Protocol Buffer
-message using the Java Google Protocol Buffers library:
+```proto
+oneof data {
+
+    // Binary data
+    bytes binary_data = 2;
+
+    // String data
+    string text_data = 3;
+
+    // Protobuf Message data
+    google.protobuf.Any proto_data = 4;
+}
+```
+
+* Where the data is a protobuf message it MUST be stored in the `proto_data` property.
+  * `datacontenttype` MAY be populated with `application/protobuf`
+  * `dataschema` SHOULD be populated with the type URL of the protobuf data message.
+
+* When the type of the data is text, the value MUST be stored in the `text_data` property.
+  * `datacontenttype` SHOULD be populated with the appropriate media-type.
+
+* When the type of the data is binary the value MUST be stored in the `binary_data` property.
+  * `datacontenttype` SHOULD be populated with the appropriate media-type.
+
+## 4. Transport
+
+Transports that support content identification MUST use the following designation:
+
+```text
+   application/cloudevents+protobuf
+```
+
+## 5. Batch Format
+
+Batch format allows for a set of CloudEvents to be represented, no relationship
+between those events is implied.
+
+Although the _protobuf batch format_ builds on the _protobuf format_ it is considered
+seperate, that is to say that support of _protobuf format_ does not indicate support
+of the batch representation. The batch format MUST only be used where supported.
+
+### 5.1 Envelope
+
+The enveloping container is a _CloudEventBatch_ protobuf message containing a
+repeating set of _CloudEvent_ message(s):
+
+```proto
+message CloudEventBatch {
+  repeated CloudEvent events = 1;
+}
+```
+
+### 5.2 Batch Media Type
+
+A compliant protobuf batch representation is identifed using the following media-type
+
+```text
+   application/cloudevents-batch+protobuf
+```
+
+## 6. Examples
+
+The following code-snippets show how proto representations might be constucted
+assuming the availability of some convenience methods.
+
+### 6.1 Plain Text event data
 
 ```java
-import com.google.common.base.Charsets;
-import com.google.protobuf.ByteString;
+public static CloudEvent plainTextExample() {
+  CloudEvent.Builder ceBuilder = CloudEvent.newBuilder();
 
+  ceBuilder
+    //-- REQUIRED Attributes.
+    .setId(UUID.randomUUID().toString())
+    .setSpecVersion("1.0")
+    .setType("io.cloudevent.example")
+    .setSource("producer-1")
 
-CloudEventMap event = CloudEventMap.newBuilder()
-  .putValue(
-    "type",
-    CloudEventAny.newBuilder()
-      .setStringValue("com.example.emitter.event")
-      .build())
-  .putValue(
-    "specversion",
-    CloudEventAny.newBuilder()
-      .setStringValue("0.2")
-      .build())
-  .putValue(
-    "time",
-    CloudEventAny.newBuilder()
-      .setStringValue("2018-10-25T00:00:00+00:00")
-      .build())
-  .putValue(
-    "source",
-    CloudEventAny.newBuilder()
-      .setStringValue("com.example.source.host1")
-      .build())
-  .putValue(
-    "comExampleCustomextension",
-    CloudEventAny.newBuilder()
-      .setStringValue("some value for the extension")
-      .build())
-  .putValue(
-    "data",
-    CloudEventAny.newBuilder()
-      .setBinaryValue(ByteString.copyFrom("a binary string", Charsets.UTF_8))
-      .build())
-  .build();
+    //-- Data.
+    .setTextData("This is a plain text message");
+
+  //-- OPTIONAL Attributes
+  withCurrentTime(ceBuilder, "time");
+  withAttribute(ceBuilder, "datacontenttype", "text/plain");
+
+  // Build it.
+  return ceBuilder.build();
+}
+
 ```
+
+### 6.2 Proto message as event data
+
+Where the event data payload is itself a protobuf message (with its own schema)
+a protocol buffer idiomatic method can be used to carry the data.
+
+```java
+private static Spec.CloudEvent protoExample() {
+
+  //-- Build an event data protobuf object.
+  Test.SomeData.Builder dataBuilder = Test.SomeData.newBuilder();
+
+  dataBuilder
+    .setSomeText("this is an important message")
+    .setIsImportant(true);
+
+  //-- Build the CloudEvent.
+  CloudEvent.Builder ceBuilder = Spec.CloudEvent.newBuilder();
+
+  ceBuilder
+    .setId(UUID.randomUUID().toString())
+    .setSpecVersion("1.0")
+    .setType("io.cloudevent.example")
+    .setSource("producer-2")
+
+    // Add the proto data into the CloudEvent envelope.
+    .setProtoData(Any.pack(dataBuilder.build()));
+
+  // Add the protto type URL
+  withAttribute(ceBuilder, "dataschema", ceBuilder.getProtoData().getTypeUrl());
+
+  // Set Content-Type (OPTIONAL)
+  withAttribute(ceBuilder, "datacontenttype", "application/protobuf");
+
+  //-- Done.
+  return ceBuilder.build();
+
+}
+```
+
+## References
+
+* [Protocol Buffer 3 Specification][proto-3]
+* [CloudEvents Protocol Buffers format schema][proto-schema]
+
+[Proto-3]: https://developers.google.com/protocol-buffers/docs/reference/proto3-spec
+[proto-home]: https://developers.google.com/protocol-buffers
+[proto-scalars]: https://developers.google.com/protocol-buffers/docs/proto3#scalar
+[proto-wellknown]: https://developers.google.com/protocol-buffers/docs/reference/google.protobuf
+[proto-timestamp]: https://developers.google.com/protocol-buffers/docs/reference/google.protobuf#google.protobuf.Timestamp
+[proto-schema]: ./spec.proto
+[json-format]: ./json-format.md
+[ce]: ./spec.md
+[ce-types]: ./spec.md#type-system
+[rfc2119]: https://tools.ietf.org/html/rfc2119
+[rfc3986-section41]: https://tools.ietf.org/html/rfc3986#section-4.1
+[rfc3986-section43]: https://tools.ietf.org/html/rfc3986#section-4.3
+[rfc3339]: https://tools.ietf.org/html/rfc3339

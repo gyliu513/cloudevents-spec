@@ -192,6 +192,7 @@ for file in ${mdFiles}; do
         if curl -f -s -k --connect-timeout 10 ${ref} > /dev/null 2>&1 ; then
           break
         fi
+        sleep 3
         let try=try+1
         if [ ${try} -eq ${maxRetries} ]; then
           extra=""
@@ -253,6 +254,7 @@ for file in ${mdFiles}; do
           sed 's/[[:space:]]*##*[[:space:]]*//' | \
           sed 's/[[:space:]]*$//' | \
           tr '[:upper:]' '[:lower:]' | \
+          sed 's/\[\([^\[]*\)\](\([^()]*\))/\1/' | \
           sed "s/  */-/g" | \
           sed "s/[^-a-zA-Z0-9]//g" | while read section ; do
             # If we haven't used this exact anchor before just use it now
